@@ -1,0 +1,24 @@
+{
+ "model": "mamba",
+ "repo": "LM_2023_Mamba_transformer-pytorch",
+ "target_repo": "LM_Dec_AttnFree_Mamba",
+ "category": "AttnFree",
+ "upstream": "pscan from alxndrTL/mamba.py (MIT); Mamba blocks: source not stated in repo - confirm",
+ "unified": [
+  "LM head (embedding, final RMSNorm, linear) written here; Lightning MambaLLM not used; d_model 1024, d_state 16, parallel scan",
+  "BUG FIX in vendored pscan (2026-10-19): backward returned gradients in the wrong layout and used the already-scanned A, so gradients were wrong; also padded to power-of-two lengths. Verified equal to the sequential scan (forward and gradients, error < 1e-14)"
+ ],
+ "torch": "2.5.1+cu124",
+ "gpu": "NVIDIA GeForce RTX 3070 Ti",
+ "stage": "overfit",
+ "started": "2026-10-19 15:15:17",
+ "smoke": false,
+ "first_ce": 5.7148566246032715,
+ "last_ce": 0.048307083547115326,
+ "passed": true,
+ "pass_loss": 0.5,
+ "steps": 400,
+ "seconds": 27.6,
+ "lr": 0.001,
+ "note": "overfit uses Adam 1e-3 on 4 x 256 bytes; only an implementation check"
+}

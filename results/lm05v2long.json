@@ -1,0 +1,126 @@
+{
+ "model": "mamba",
+ "repo": "LM_2023_Mamba_transformer-pytorch",
+ "target_repo": "LM_Dec_AttnFree_Mamba",
+ "category": "AttnFree",
+ "upstream": "pscan from alxndrTL/mamba.py (MIT); Mamba blocks: source not stated in repo - confirm",
+ "unified": [
+  "LM head (embedding, final RMSNorm, linear) written here; Lightning MambaLLM not used; d_model 1024, d_state 16, parallel scan",
+  "micro-batch 8 with gradient accumulation (same update): the pure-PyTorch scan keeps about 0.9 MB per token, so batch 32 x 512 exceeds 8 GB; on Windows this spilled into system RAM and the first LM-05 run reached only 500 steps in 2 h (kept as lm05_capped_1019.json)",
+  "BUG FIX in vendored pscan (2026-10-19): backward returned gradients in the wrong layout and used the already-scanned A, so gradients were wrong; also padded to power-of-two lengths. Verified equal to the sequential scan (forward and gradients, error < 1e-14)"
+ ],
+ "torch": "2.5.1+cu124",
+ "gpu": "NVIDIA GeForce RTX 3070 Ti",
+ "stage": "lm05v2long",
+ "started": "2026-10-24 04:22:33",
+ "smoke": false,
+ "levels": {
+  "4": {
+   "steps": 16162,
+   "capped": true,
+   "diverged": false,
+   "bf16": true,
+   "final_loss": 0.32877787947654724,
+   "minutes": 302.2,
+   "history": [
+    {
+     "step": 2500,
+     "loss": 0.7832764983177185,
+     "acc": 0.7412109375
+    },
+    {
+     "step": 5000,
+     "loss": 0.4539874792098999,
+     "acc": 0.830078125
+    },
+    {
+     "step": 7500,
+     "loss": 0.408128947019577,
+     "acc": 0.826171875
+    },
+    {
+     "step": 10000,
+     "loss": 0.38042309880256653,
+     "acc": 0.8427734375
+    },
+    {
+     "step": 12500,
+     "loss": 0.3785206973552704,
+     "acc": 0.8212890625
+    },
+    {
+     "step": 15000,
+     "loss": 0.27724575996398926,
+     "acc": 0.8583984375
+    }
+   ],
+   "test": {
+    "512": {
+     "normal": 0.860107421875,
+     "keys": 0.75048828125,
+     "values": 0.65869140625,
+     "true_recall": 0.109619140625
+    },
+    "2048": {
+     "normal": 0.4439697265625,
+     "keys": 0.7103271484375,
+     "values": 0.310546875,
+     "true_recall": -0.266357421875
+    },
+    "8192": {
+     "normal": 0.00830078125,
+     "keys": 0.005615234375,
+     "values": 0.0028076171875,
+     "true_recall": 0.002685546875
+    }
+   },
+   "value_set_baseline": 0.25,
+   "chance": 0.015625,
+   "micro_batch": 8
+  },
+  "16": {
+   "steps": 5926,
+   "capped": false,
+   "diverged": true,
+   "bf16": true,
+   "final_loss": NaN,
+   "minutes": 151.4,
+   "history": [
+    {
+     "step": 2500,
+     "loss": 2.943643093109131,
+     "acc": 0.2412109375
+    },
+    {
+     "step": 5000,
+     "loss": 2.2330081462860107,
+     "acc": 0.29296875
+    }
+   ],
+   "test": {
+    "512": {
+     "normal": 0.0,
+     "keys": 0.0,
+     "values": 0.0,
+     "true_recall": 0.0
+    },
+    "2048": {
+     "normal": 0.0,
+     "keys": 0.0,
+     "values": 0.0,
+     "true_recall": 0.0
+    },
+    "8192": {
+     "normal": 0.0,
+     "keys": 0.0,
+     "values": 0.0,
+     "true_recall": 0.0
+    }
+   },
+   "value_set_baseline": 0.0625,
+   "chance": 0.015625,
+   "micro_batch": 8
+  }
+ },
+ "seconds": 27220.8
+}

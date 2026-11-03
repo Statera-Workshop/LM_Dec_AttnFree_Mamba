@@ -1,0 +1,100 @@
+{
+ "model": "mamba",
+ "repo": "LM_2023_Mamba_transformer-pytorch",
+ "target_repo": "LM_Dec_AttnFree_Mamba",
+ "category": "AttnFree",
+ "upstream": "pscan from alxndrTL/mamba.py (MIT); Mamba blocks: source not stated in repo - confirm",
+ "unified": [
+  "LM head (embedding, final RMSNorm, linear) written here; Lightning MambaLLM not used; d_model 1024, d_state 16, parallel scan",
+  "micro-batch 8 with gradient accumulation (same update): the pure-PyTorch scan keeps about 0.9 MB per token, so batch 32 x 512 exceeds 8 GB; on Windows this spilled into system RAM and the first LM-05 run reached only 500 steps in 2 h (kept as lm05_capped_1019.json)",
+  "BUG FIX in vendored pscan (2026-10-19): backward returned gradients in the wrong layout and used the already-scanned A, so gradients were wrong; also padded to power-of-two lengths. Verified equal to the sequential scan (forward and gradients, error < 1e-14)"
+ ],
+ "torch": "2.5.1+cu124",
+ "gpu": "NVIDIA GeForce RTX 3070 Ti",
+ "stage": "lm05",
+ "started": "2026-10-20 09:00:34",
+ "smoke": false,
+ "params": 10821120,
+ "micro_batch": 8,
+ "steps": 5780,
+ "budget_steps": 6000,
+ "capped": false,
+ "batch": 32,
+ "train_len": 512,
+ "pairs": 16,
+ "bf16": true,
+ "minutes": 93.9,
+ "history": [
+  {
+   "step": 500,
+   "loss": 4.172970294952393,
+   "acc_train_len": 0.0185546875
+  },
+  {
+   "step": 1000,
+   "loss": 4.164791107177734,
+   "acc_train_len": 0.017578125
+  },
+  {
+   "step": 1500,
+   "loss": 4.167305946350098,
+   "acc_train_len": 0.01416015625
+  },
+  {
+   "step": 2000,
+   "loss": 4.161837100982666,
+   "acc_train_len": 0.017578125
+  },
+  {
+   "step": 2500,
+   "loss": 4.159377574920654,
+   "acc_train_len": 0.02197265625
+  },
+  {
+   "step": 3000,
+   "loss": 4.168089389801025,
+   "acc_train_len": 0.01611328125
+  },
+  {
+   "step": 3500,
+   "loss": 4.158058166503906,
+   "acc_train_len": 0.01123046875
+  },
+  {
+   "step": 4000,
+   "loss": 4.168857097625732,
+   "acc_train_len": 0.01123046875
+  },
+  {
+   "step": 4500,
+   "loss": 4.170454978942871,
+   "acc_train_len": 0.0126953125
+  },
+  {
+   "step": 5000,
+   "loss": 4.169340133666992,
+   "acc_train_len": 0.015625
+  },
+  {
+   "step": 5500,
+   "loss": 4.167387962341309,
+   "acc_train_len": 0.01611328125
+  }
+ ],
+ "test": {
+  "512": {
+   "acc": 0.0,
+   "answers": 8192
+  },
+  "1024": {
+   "acc": 0.0,
+   "answers": 8192
+  },
+  "2048": {
+   "acc": 0.0,
+   "answers": 8192
+  }
+ },
+ "chance": 0.015625,
+ "seconds": 5636.2
+}

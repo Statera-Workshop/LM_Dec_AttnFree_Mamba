@@ -1,0 +1,49 @@
+{
+ "model": "mamba",
+ "repo": "LM_2023_Mamba_transformer-pytorch",
+ "target_repo": "LM_Dec_AttnFree_Mamba",
+ "category": "AttnFree",
+ "upstream": "pscan from alxndrTL/mamba.py (MIT); Mamba blocks: source not stated in repo - confirm",
+ "unified": [
+  "LM head (embedding, final RMSNorm, linear) written here; Lightning MambaLLM not used; d_model 1024, d_state 16, parallel scan",
+  "BUG FIX in vendored pscan (2026-10-19): backward returned gradients in the wrong layout and used the already-scanned A, so gradients were wrong; also padded to power-of-two lengths. Verified equal to the sequential scan (forward and gradients, error < 1e-14)"
+ ],
+ "torch": "2.5.1+cu124",
+ "gpu": "NVIDIA GeForce RTX 3070 Ti",
+ "stage": "lm05",
+ "started": "2026-10-19 22:37:52",
+ "smoke": false,
+ "params": 10821120,
+ "micro_batch": null,
+ "steps": 500,
+ "budget_steps": 6000,
+ "capped": true,
+ "batch": 32,
+ "train_len": 512,
+ "pairs": 16,
+ "bf16": true,
+ "minutes": 169.0,
+ "history": [
+  {
+   "step": 500,
+   "loss": 4.172840118408203,
+   "acc_train_len": 0.0185546875
+  }
+ ],
+ "test": {
+  "512": {
+   "acc": 0.0169677734375,
+   "answers": 8192
+  },
+  "1024": {
+   "acc": 0.017578125,
+   "answers": 8192
+  },
+  "2048": {
+   "acc": 0.0137939453125,
+   "answers": 8192
+  }
+ },
+ "chance": 0.015625,
+ "seconds": 10164.7
+}
