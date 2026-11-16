@@ -590,6 +590,102 @@ class HybridMix(LM):
         return self.head(self.norm(h))
 
 
+# --------------------------------------------------------------------------- phase 10 (2026-11-16): lucidrains
+# memory / long-context packages selected for PASG (all pure PyTorch, run without Triton on Windows)
+
+def build_titans(max_len):
+    from titans_pytorch import MemoryAsContextTransformer
+    return Wrap(MemoryAsContextTransformer(
+        num_tokens=VOCAB, dim=MODEL["dim"], depth=MODEL["depth"], segment_len=128, num_persist_mem_tokens=4,
+        num_longterm_mem_tokens=4, neural_memory_layers=(2, 4), neural_memory_segment_len=4,
+        neural_memory_batch_size=128, dim_head=MODEL["dim_head"], heads=MODEL["heads"]))
+
+
+def build_local(max_len):
+    from local_attention import LocalTransformer
+    return Wrap(LocalTransformer(num_tokens=VOCAB, max_seq_len=max(max_len, 8192), dim=MODEL["dim"],
+                                 depth=MODEL["depth"], causal=True, local_attn_window_size=256,
+                                 dim_head=MODEL["dim_head"], heads=MODEL["heads"]))
+
+
+class HybridGRULocal(LM):
+    """GRU layer + true blocked sliding-window attention (local-attention package): the KV cache is really bounded,
+    unlike the mask-based window of x-transformers used for hyb_gru_rope_w256."""
+
+    def __init__(self, window=256):
+        super().__init__()
+        from local_attention import LocalMHA
+        d = MODEL["dim"]
+        self.emb = nn.Embedding(VOCAB, d)
+        self.gru = nn.GRU(d, d, num_layers=1, batch_first=True)
+        self.layers = nn.ModuleList([nn.ModuleList([
+            LocalMHA(dim=d, window_size=window, dim_head=MODEL["dim_head"], heads=MODEL["heads"], causal=True,
+                     prenorm=True, use_rotary_pos_emb=True),
+            nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 4 * d), nn.GELU(), nn.Linear(4 * d, d))])
+            for _ in range(MODEL["depth"])])
+        self.norm = nn.LayerNorm(d)
+        self.head = nn.Linear(d, VOCAB, bias=False)
+
+    def forward(self, x):
+        h = self.emb(x)
+        r, _ = self.gru(h)
+        h = h + r
+        for attn, ff in self.layers:
+            h = attn(h) + h
+            h = ff(h) + h
+        return self.head(self.norm(h))
+
+
+class CompressiveLM(LM):
+    """CompressiveTransformer processes fixed segments and carries (memory, compressed memory) between them."""
+
+    def __init__(self, seg=128):
+        super().__init__()
+        from compressive_transformer_pytorch import CompressiveTransformer
+        self.seg = seg
+        self.inner = CompressiveTransformer(num_tokens=VOCAB, dim=MODEL["dim"], seq_len=seg, depth=MODEL["depth"],
+                                            heads=MODEL["heads"], mem_len=seg, cmem_len=seg // 4, cmem_ratio=4,
+                                            memory_layers=range(1, MODEL["depth"] + 1))
+
+    def forward(self, x):
+        outs, mem = [], None
+        for i in range(0, x.shape[1], self.seg):
+            logits, mem, _ = self.inner(x[:, i:i + self.seg], memories=mem)
+            outs.append(logits)
+        return torch.cat(outs, 1)
+
+
+def build_performer(max_len):
+    from performer_pytorch import PerformerLM
+    return Wrap(PerformerLM(num_tokens=VOCAB, max_seq_len=max(max_len, 8192), dim=MODEL["dim"], depth=MODEL["depth"],
+                            heads=MODEL["heads"], dim_head=MODEL["dim_head"], causal=True, rotary_position_emb=True,
+                            axial_position_emb=False, use_scalenorm=False))
+
+
+class TaylorLM(LM):
+    """Based-style LM: Taylor-series linear attention (recall-oriented linear attention) + feed-forward."""
+
+    def __init__(self):
+        super().__init__()
+        from taylor_series_linear_attention import TaylorSeriesLinearAttn
+        d = MODEL["dim"]
+        self.emb = nn.Embedding(VOCAB, d)
+        self.layers = nn.ModuleList([nn.ModuleList([
+            nn.LayerNorm(d), TaylorSeriesLinearAttn(dim=d, dim_head=16, heads=MODEL["heads"], causal=True,
+                                                    rotary_emb=True),
+            nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 4 * d), nn.GELU(), nn.Linear(4 * d, d))])
+            for _ in range(MODEL["depth"])])
+        self.norm = nn.LayerNorm(d)
+        self.head = nn.Linear(d, VOCAB, bias=False)
+
+    def forward(self, x):
+        h = self.emb(x)
+        for n1, attn, ff in self.layers:
+            h = attn(n1(h)) + h
+            h = ff(h) + h
+        return self.head(self.norm(h))
+
+
 # --------------------------------------------------------------------------- registry
 
 LUCID = "lucidrains/{} (MIT)"
@@ -871,6 +967,26 @@ REGISTRY = {
         build=build_hyb("rope", window=1024), repo="(new) hybrid: GRU + local and global attention", category="Long",
         model="HybridGRU_RoPE_W1024", upstream=LUCID.format("x-transformers") + ", pip 2.31.7 + torch.nn", probe_max=8192, phase=9, role="mixed hybrid memory",
         unified=["window-size sweep: hyb_gru_rope with attention limited to the last 1024 tokens"]),
+    "titans": dict(
+        build=build_titans, repo="(new) lucidrains/titans-pytorch", category="Long", model="Titans_MAC",
+        upstream=LUCID.format("titans-pytorch"), probe_max=8192, phase=10, role="memory candidate",
+        unified=["MemoryAsContextTransformer (titans-pytorch 0.4.22, last version for torch 2.5): segments 128, neural memory in layers 2 and 4, 4 persistent + 4 long-term memory tokens"]),
+    "local_tf": dict(
+        build=build_local, repo="(new) lucidrains/local-attention", category="Attention", model="LocalTransformer",
+        upstream=LUCID.format("local-attention"), probe_max=8192, phase=10, role="memory candidate",
+        unified=["LocalTransformer, blocked sliding window 256 (bounded KV cache)"]),
+    "hyb_gru_local": dict(
+        build=lambda max_len: HybridGRULocal(256), repo="(new) lucidrains/local-attention", category="Long", model="HybridGRU_LocalAttn",
+        upstream=LUCID.format("local-attention"), probe_max=8192, phase=10, role="memory candidate",
+        unified=["GRU layer + 6 blocked sliding-window (256) rotary attention layers from local-attention (real bounded memory)"]),
+    "compressive": dict(
+        build=lambda max_len: CompressiveLM(128), repo="(new) lucidrains/compressive-transformer-pytorch", category="Long", model="CompressiveTransformer",
+        upstream=LUCID.format("compressive-transformer-pytorch"), probe_max=8192, phase=10, role="memory candidate",
+        unified=["segments of 128, memory 128 and compressed memory 32 (ratio 4) carried across segments"]),
+    "performer": dict(
+        build=build_performer, repo="(new) lucidrains/performer-pytorch", category="Attention", model="Performer",
+        upstream=LUCID.format("performer-pytorch"), probe_max=8192, phase=10, role="memory candidate",
+        unified=["causal FAVOR+ linear attention with rotary positions"]),
 }
 
 
