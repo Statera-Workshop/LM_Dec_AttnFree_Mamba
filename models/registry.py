@@ -686,6 +686,35 @@ class TaylorLM(LM):
         return self.head(self.norm(h))
 
 
+# --------------------------------------------------------------------------- phase 11 (2026-11-20): one model for all three
+# Order matters (round 10): global-first (hyb_mix_r) = recall + update, local-first (hyb_mix) = state tracking.
+# Window 64 generalised best for state tracking. Candidates that try to keep both:
+
+class HybridStack(LM):
+    """GRU layer, then a sequence of single-layer attention blocks: 'L' = sliding window (RoPE), 'G' = global (NoPE)."""
+
+    def __init__(self, pattern, window=64):
+        super().__init__()
+        from x_transformers import Decoder
+        d = MODEL["dim"]
+        self.emb = nn.Embedding(VOCAB, d)
+        self.gru = nn.GRU(d, d, num_layers=1, batch_first=True)
+        base = dict(dim=d, depth=1, heads=MODEL["heads"], attn_dim_head=MODEL["dim_head"], attn_flash=True)
+        self.blocks = nn.ModuleList([
+            Decoder(rotary_pos_emb=True, attn_max_attend_past=window, **base) if c == "L" else Decoder(**base)
+            for c in pattern])
+        self.norm = nn.LayerNorm(d)
+        self.head = nn.Linear(d, VOCAB, bias=False)
+
+    def forward(self, x):
+        h = self.emb(x)
+        r, _ = self.gru(h)
+        h = h + r
+        for blk in self.blocks:
+            h = blk(h)
+        return self.head(self.norm(h))
+
+
 # --------------------------------------------------------------------------- registry
 
 LUCID = "lucidrains/{} (MIT)"
@@ -987,6 +1016,18 @@ REGISTRY = {
         build=build_performer, repo="(new) lucidrains/performer-pytorch", category="Attention", model="Performer",
         upstream=LUCID.format("performer-pytorch"), probe_max=8192, phase=10, role="memory candidate",
         unified=["causal FAVOR+ linear attention with rotary positions"]),
+    "hyb_alt64": dict(
+        build=lambda max_len: HybridStack("LGLGLG", 64), repo="(new) hybrid: GRU + local/global attention stack",
+        category="Long", model="HybridAlt_W64", upstream=LUCID.format("x-transformers") + ", pip 2.31.7 + torch.nn", probe_max=8192, phase=11, role="mixed hybrid memory",
+        unified=["GRU, then 6 single layers alternating sliding-window-64 RoPE and global NoPE (L G L G L G)"]),
+    "hyb_mix_r64": dict(
+        build=lambda max_len: HybridStack("GGGLLL", 64), repo="(new) hybrid: GRU + local/global attention stack",
+        category="Long", model="HybridMix_GlobalLocal_W64", upstream=LUCID.format("x-transformers") + ", pip 2.31.7 + torch.nn", probe_max=8192, phase=11, role="mixed hybrid memory",
+        unified=["hyb_mix_r with window 64: GRU, 3 global NoPE layers, 3 window-64 RoPE layers"]),
+    "hyb_mix64": dict(
+        build=lambda max_len: HybridStack("LLLGGG", 64), repo="(new) hybrid: GRU + local/global attention stack",
+        category="Long", model="HybridMix_LocalGlobal_W64", upstream=LUCID.format("x-transformers") + ", pip 2.31.7 + torch.nn", probe_max=8192, phase=11, role="mixed hybrid memory",
+        unified=["hyb_mix with window 64: GRU, 3 window-64 RoPE layers, 3 global NoPE layers"]),
 }
 
 
