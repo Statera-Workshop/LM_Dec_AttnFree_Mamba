@@ -142,7 +142,7 @@ def sample_text(model, prime, device, use_amp, length=256, top_k=1):
     return "".join(chr(max(32, c)) if c < 128 else "?" for c in out)
 
 
-def train_lm02(model, splits, device, run_dir, log, smoke=False, overrides=None, tag="lm02"):
+def train_lm02(model, splits, device, run_dir, log, smoke=False, overrides=None, tag="lm02", seed_offset=0):
     cfg = dict(LM02)
     cfg.update(overrides or {})
     if smoke:
@@ -151,7 +151,7 @@ def train_lm02(model, splits, device, run_dir, log, smoke=False, overrides=None,
     total_steps = math.ceil(cfg["tokens"] / tokens_per_step)
     opt = make_optimizer(model)
     ckpt = run_dir / f"{tag}_ckpt.pt"
-    g = torch.Generator().manual_seed(SEED)
+    g = torch.Generator().manual_seed(SEED + 1000 * seed_offset)
     hist, step, elapsed, use_amp = [], 0, 0.0, None
     if ckpt.exists():
         s = torch.load(ckpt, map_location=device, weights_only=False)

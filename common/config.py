@@ -110,3 +110,11 @@ SEEDS.update({"lm05v3s4": 4, "lm05v3s5": 5, "lm05v3s6": 6, "lm06longs3": 3})
 SEEDS.update({"lm05v3longs3": 3})
 SEEDS.update({"lm07s2": 2, "lm07s3": 3})
 SEEDS.update({"lm07longs2": 2})
+
+# 2026-11-25 scaling study (4090 x2): a registry name with a suffix "@m" / "@l" builds the same model at a larger
+# size (only models whose builder reads MODEL). Results go to runs/<name>@<scale>/.
+SCALES = {"m": dict(dim=768, depth=12, heads=12, dim_head=64),     # about 85M parameters
+          "l": dict(dim=1024, depth=16, heads=16, dim_head=64)}    # about 200M parameters
+LM02_VARIANTS = {"lm02long": LM02_LONG,
+                 "lm02x5": dict(tokens=5_000_000_000, max_hours=60.0, eval_every=5000),   # 5B tokens
+                 "lm02s2": dict(seed_offset=2), "lm02s3": dict(seed_offset=3)}           # 200M, other seeds

@@ -28,7 +28,7 @@ from common import probes, trainer
 from models.registry import REGISTRY, build, n_params, repo_name
 
 STAGES = ("check", "scaling", "overfit", "lm05", "lm02")
-EXTRA = ("verify5", "lm05v2", "lm05v2long", "lm05v2s2", "lm05v2s3", "lm02long", "lm05v3", "lm05v3long", "lm05v3s2", "lm05v3s3", "lm05v3longs2", "lm06", "lm06long", "lm06s2", "lm06s3", "lm06longs2", "lm06v", "lm05v3s4", "lm05v3s5", "lm05v3s6", "lm06longs3", "lm05v3longs3", "lm07", "lm07long", "lm07s2", "lm07s3", "lm08", "lm07longs2")   # run on demand, not part of "all"
+EXTRA = ("verify5", "lm05v2", "lm05v2long", "lm05v2s2", "lm05v2s3", "lm02long", "lm05v3", "lm05v3long", "lm05v3s2", "lm05v3s3", "lm05v3longs2", "lm06", "lm06long", "lm06s2", "lm06s3", "lm06longs2", "lm06v", "lm05v3s4", "lm05v3s5", "lm05v3s6", "lm06longs3", "lm05v3longs3", "lm07", "lm07long", "lm07s2", "lm07s3", "lm08", "lm07longs2", "lm02x5", "lm02s2", "lm02s3")   # run on demand, not part of "all"
 
 
 def now():
@@ -43,7 +43,8 @@ def summary(line):
 
 
 def meta(name):
-    e = REGISTRY[name]
+    from models.registry import split_scale
+    e = REGISTRY[split_scale(name)[0]]
     return dict(model=name, repo=e["repo"], target_repo=repo_name(name), category=e["category"],
                 upstream=e["upstream"], unified=e["unified"], torch=torch.__version__,
                 gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu")
@@ -67,7 +68,8 @@ def run_stage(stage, name, device, smoke, log):
     run_dir = RUNS_DIR / name
     run_dir.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(SEED)
-    out = dict(meta(name), stage=stage, started=now(), smoke=smoke)
+    out = dict(meta(name), stage=stage, started=now(), smoke=smoke,
+               gpu=torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu")   # 2026-11-24: 3070 Ti vs 4090
     global build
     if smoke:  # CPU code-path test in a small container: one sample at a time
         _b = build
@@ -92,7 +94,8 @@ def run_stage(stage, name, device, smoke, log):
         msg = f"{name:12s} check    params {out['params'] / 1e6:6.2f}M causality {status} (leak {c['worst_leak']:.2e})"
 
     elif stage == "scaling":
-        lim = min(REGISTRY[name]["probe_max"], 512 if smoke else 10**9)
+        from models.registry import split_scale
+        lim = min(REGISTRY[split_scale(name)[0]]["probe_max"], 512 if smoke else 10**9)
         out["rows"] = probes.scaling(lambda L: build(name, max_len=max(L, 512)), device, lim, log)
         last = [r for r in out["rows"] if isinstance(r.get("train"), dict)]
         top = last[-1] if last else None
@@ -243,7 +246,7 @@ def run_stage(stage, name, device, smoke, log):
         msg = (f"{name:12s} lm05     recall {accs} ({out['minutes']} min, bf16={out['bf16']}"
                f"{', CAPPED at step ' + str(out['steps']) if out['capped'] else ''})")
 
-    elif stage in ("lm02", "lm02long"):
+    elif stage in ("lm02", "lm02long", "lm02x5", "lm02s2", "lm02s3"):
         if smoke:
             data = torch.randint(0, 256, (200_000,), dtype=torch.uint8)
             splits = dict(train=data, valid=data[:50_000], test=data[50_000:100_000])
@@ -251,11 +254,14 @@ def run_stage(stage, name, device, smoke, log):
             splits = load_enwik8()
             for line in check_enwik8(splits):
                 log(line)
+        from common.config import LM02_VARIANTS
+        ov = dict(LM02_VARIANTS.get(stage, {}))
+        seed_offset = ov.pop("seed_offset", 0)
+        torch.manual_seed(SEED + 1000 * seed_offset)
         model = build(name, max_len=MAX_LEN).to(device)
         out["params"] = n_params(model)
-        from common.config import LM02_LONG
-        out.update(trainer.train_lm02(model, splits, device, run_dir, log, smoke=smoke,
-                                      overrides=LM02_LONG if stage == "lm02long" else None, tag=stage))
+        out.update(trainer.train_lm02(model, splits, device, run_dir, log, smoke=smoke, overrides=ov or None,
+                                      tag=stage, seed_offset=seed_offset))
         msg = (f"{name:12s} {stage:8s} valid {out['valid_bpc']:.3f} test {out['test_bpc']:.3f} bpc, "
                f"{out['tokens'] / 1e6:.0f}M tokens{' CAPPED' if out['capped'] else ''} ({out['hours']} h)")
     else:
@@ -271,7 +277,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("stage", choices=STAGES + EXTRA + ("all", "lm03", "lm03big", "lm03s2"))
     from models.seq2seq import S2S
-    ap.add_argument("model", choices=sorted(REGISTRY) + sorted(S2S))
+    ap.add_argument("model")   # registry name, optionally with a scale suffix (@m, @l), or an encoder-decoder port
     ap.add_argument("--smoke", action="store_true", help="tiny budgets, random data: code path test only")
     ap.add_argument("--cpu", action="store_true")
     a = ap.parse_args()

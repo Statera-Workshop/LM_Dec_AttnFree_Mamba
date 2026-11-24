@@ -568,13 +568,14 @@ def build_hyb(pos, cell="gru", window=None, gru=True):
 # its window. Mixed hybrid: GRU, then windowed-RoPE layers (local integration), then global NoPE layers (retrieval).
 
 class HybridMix(LM):
-    def __init__(self, window=256, local_first=True, local_depth=3):
+    def __init__(self, window=256, local_first=True, local_depth=None):
         super().__init__()
         from x_transformers import Decoder
         d = MODEL["dim"]
         self.emb = nn.Embedding(VOCAB, d)
         self.gru = nn.GRU(d, d, num_layers=1, batch_first=True)
         base = dict(dim=d, heads=MODEL["heads"], attn_dim_head=MODEL["dim_head"], attn_flash=True)
+        local_depth = local_depth or MODEL["depth"] // 2       # half local, half global (3 + 3 at the base size)
         local = Decoder(depth=local_depth, rotary_pos_emb=True, attn_max_attend_past=window, **base)
         glob = Decoder(depth=MODEL["depth"] - local_depth, **base)
         self.blocks = nn.ModuleList([local, glob] if local_first else [glob, local])
@@ -700,6 +701,7 @@ class HybridStack(LM):
         self.emb = nn.Embedding(VOCAB, d)
         self.gru = nn.GRU(d, d, num_layers=1, batch_first=True)
         base = dict(dim=d, depth=1, heads=MODEL["heads"], attn_dim_head=MODEL["dim_head"], attn_flash=True)
+        pattern = (pattern * MODEL["depth"])[:max(MODEL["depth"], len(pattern))]   # scaled models repeat the pattern
         self.blocks = nn.ModuleList([
             Decoder(rotary_pos_emb=True, attn_max_attend_past=window, **base) if c == "L" else Decoder(**base)
             for c in pattern])
@@ -1031,9 +1033,29 @@ REGISTRY = {
 }
 
 
+SCALABLE = {"xt_rope", "xt_alibi", "gqa", "hyb_gru_nope", "hyb_gru_rope", "hyb_alt64", "hyb_mix", "hyb_gru_local"}
+
+
+def split_scale(name):
+    """'hyb_alt64@m' -> ('hyb_alt64', 'm'); plain names -> (name, None)."""
+    base, _, sc = name.partition("@")
+    return base, (sc or None)
+
+
 def build(name, max_len=MAX_LEN):
-    entry = REGISTRY[name]
-    model = entry["build"](max_len)
+    base, sc = split_scale(name)
+    entry = REGISTRY[base]
+    saved = dict(MODEL)
+    if sc:
+        from common.config import SCALES
+        if base not in SCALABLE or sc not in SCALES:
+            raise ValueError(f"{name}: scale '{sc}' not available for this model")
+        MODEL.update(SCALES[sc])      # builders read MODEL when they are called
+    try:
+        model = entry["build"](max_len)
+    finally:
+        MODEL.clear()
+        MODEL.update(saved)
     model.name = name
     model.micro_batch = entry.get("micro_batch")   # None = whole batch at once
     model.lr = entry.get("lr")                     # None = unified learning rate
@@ -1045,7 +1067,7 @@ def build(name, max_len=MAX_LEN):
 
 
 def repo_name(name):
-    e = REGISTRY[name]
+    e = REGISTRY[split_scale(name)[0]]
     return f"LM_Dec_{e['category']}_{e['model']}"
 
 
